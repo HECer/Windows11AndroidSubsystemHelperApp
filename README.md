@@ -8,6 +8,40 @@ A native Windows 11 app for setting up Windows Subsystem for Android (WSA), inst
 
 Microsoft retired WSA and removed it from the Store on March 5, 2025 ([notice](https://github.com/microsoft/WSA/discussions/536)). This project uses an explicitly pinned [WSABuilds community build](https://github.com/MustardChef/WSABuilds/releases/tag/Windows_11_2407.40000.4.0_LTS_8). It does not restore Microsoft's support or guarantee compatibility with future Windows updates. It is unaffiliated with Microsoft, Google, Amazon, or WSABuilds.
 
+## Screenshots
+
+Rendered app previews in light and dark themes. The app-library rows use sample package IDs.
+
+### Android apps
+
+Search installed packages, select multiple apps, and install APKs from one place.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/apps-selected-dark.png">
+  <img src="docs/images/apps-selected-light.png" alt="WSA Helper app library with three sample Android packages selected for multi-uninstall" width="1164">
+</picture>
+
+<details>
+<summary>Setup and removal screens</summary>
+
+### Setup
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/setup-dark.png">
+  <img src="docs/images/setup-light.png" alt="WSA Helper setup screen showing prerequisite checks, installation steps and system requirements" width="1164">
+</picture>
+
+### Remove
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/remove-dark.png">
+  <img src="docs/images/remove-light.png" alt="WSA Helper removal screen explaining preserved installations, Android data deletion and optional Windows setting restoration" width="1164">
+</picture>
+
+</details>
+
+[Screenshot generation and provenance](docs/images/README.md)
+
 ## Use
 
 1. Extract the entire release ZIP to a local folder. Run **WsaSetup.exe** normally, without “Run as administrator”. No separate .NET installation is needed in the published package.
