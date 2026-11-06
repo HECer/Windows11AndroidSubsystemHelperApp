@@ -2,6 +2,8 @@
 
 Version 0.1.0 is an experimental release candidate. The following destructive/privileged scenarios must be verified on disposable Windows 11 x64 installations before production release. Do not run them on a daily-use computer as a smoke test.
 
+**Fresh-deployment implementation gate:** WSA's manifest declares `WsaService` with `StartAccount="localSystem"`. [Microsoft requires administrator privileges to install packages containing services](https://learn.microsoft.com/en-us/windows/msix/packaging-tool/convert-an-installer-with-services). The current fresh path calls `Add-AppxPackage -Register` from the unelevated caller. Implement and verify identity-safe elevated deployment, including protected runtime staging, without accidentally registering WSA for alternate administrator credentials or modifying another user's installation. The existing-WSA tests skip registration and cannot establish that this path works. This implementation gate must be resolved before checking the fresh-install scenarios below.
+
 - [ ] Windows 11 Home: firmware virtualization on, VMP off, no WSA/ADB/.NET desktop runtime. Run extracted WsaSetup.exe, approve UAC, restart, verify sign-in resume, framework registration and WSA boot.
 - [ ] Windows 11 Pro with VMP already enabled: verify existing feature state is preserved.
 - [ ] Non-administrator Windows account: supply a separate administrator at UAC and verify WSA/framework registration remains in the original user's account.

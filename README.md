@@ -2,6 +2,8 @@
 
 A native Windows 11 app for setting up Windows Subsystem for Android (WSA), installing APKs from Explorer, and managing Android apps. **Release candidate / experimental. Windows 11 x64 only.**
 
+**Do not use this candidate for a fresh production WSA installation.** Existing-WSA helper setup/removal has been exercised, but fresh deployment still needs an identity-safe elevated registration path for WSA's packaged service and clean-machine verification. See [acceptance gates](docs/ACCEPTANCE.md).
+
 Microsoft retired WSA and removed it from the Store on March 5, 2025 ([notice](https://github.com/microsoft/WSA/discussions/536)). This project uses an explicitly pinned [WSABuilds community build](https://github.com/MustardChef/WSABuilds/releases/tag/Windows_11_2407.40000.4.0_LTS_8). It does not restore Microsoft's support or guarantee compatibility with future Windows updates. It is unaffiliated with Microsoft, Google, Amazon, or WSABuilds.
 
 ## Use
