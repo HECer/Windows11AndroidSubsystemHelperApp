@@ -2,6 +2,8 @@
 
 Native Windows 11 x64 setup, APK management and removal suite.
 
+The three screens now share a polished sidebar, coordinated light/dark themes, emerald accents and a matching application icon. The library includes search, selection counts and clear disconnected/empty states. Progress and errors stay in the window, with expandable activity details. Destructive actions retain confirmation. The desktop test renders 28 page/state/theme/size combinations and checks filtering, multi-selection and compact-window bulk actions.
+
 - WsaSetup.exe checks prerequisites, configures Windows virtualization/sideloading settings with UAC, downloads hash-pinned community WSA and Google platform-tools, installs bundled Microsoft framework dependencies, and resumes after a required restart.
 - WsaHelper.exe registers with Explorer Open with for automatic APK installation. Launch it normally to list user-installed Android packages, install APKs, uninstall using an APK's package identity, or uninstall multiple selected apps.
 - WsaRemove.exe removes the helper-owned installation and offers explicit restoration of recorded Windows machine settings. Existing WSA installations and shared Microsoft framework packages are preserved.

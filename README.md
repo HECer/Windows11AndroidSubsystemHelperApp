@@ -19,6 +19,8 @@ The manager starts WSA when needed and reconnects to `127.0.0.1:58526`. It waits
 
 Only individual `.apk` files are supported. `.apks`, `.xapk`, split APK sets and Google Play services are not installed. Compatibility depends on WSA and the APK. No Google account or app store is required.
 
+Setup, Android apps and Remove share a sidebar, an emerald accent and coordinated light/dark themes. The initial theme follows Windows; the top-right appearance button switches it for the current session. High-contrast mode uses Windows colors. The app library includes search, selection counts and separate disconnected, empty and no-results states. Connection tools and **Uninstall from APK…** are under **Connection & APK tools**. Progress, cancellation and errors stay in the window; expand **Activity details** for the full log. Destructive operations still ask for confirmation.
+
 Fresh WSA setup and removal currently require an administrator account that approves its own UAC prompts. Supplying a different administrator's credentials is rejected before privileged changes; it would register WSA for the wrong account. Windows Administrator protection configurations that change the elevated account SID are also rejected. Existing WSA management runs without elevation. These account limitations must be considered before using this candidate.
 
 ## Remove / reverse setup
