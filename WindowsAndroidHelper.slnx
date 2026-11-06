@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/WsaHelper.Core/WsaHelper.Core.csproj" />
+    <Project Path="src/WsaHelper.Desktop/WsaHelper.Desktop.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/WsaHelper.Desktop.Tests/WsaHelper.Desktop.Tests.csproj" />
+    <Project Path="tests/WsaHelper.Tests/WsaHelper.Tests.csproj" />
+  </Folder>
+</Solution>
