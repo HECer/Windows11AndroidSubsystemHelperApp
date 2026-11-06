@@ -19,4 +19,6 @@ Version 0.1.0 is an experimental release candidate. The following destructive/pr
 - [ ] Subsequent setup/removal cycles and machine-policy restore after an earlier removal with settings retained.
 - [ ] Windows dark/light/high-contrast themes, 125–200% scaling, keyboard navigation, screen reader names, and small screen sizing.
 
+Verified on the existing Store WSA installation on Windows build 26300: packaged helper setup and removal, quoted handler registration, all three Start menu shortcuts, deferred deletion of 12 recorded helper files, preservation of an added file, preservation of the original APK default choice, and preservation of the existing WSA registration. The broader fresh-install/community-build and Android operation scenarios above remain open; see VALIDATION.md for the exact evidence and current debugging-authorization blocker.
+
 Record Windows build, edition, test account privilege, source archive hashes, APK identities and each result in the release notes. Never upload credentials or private APKs. Code signing, a tested runtime-source update process and a completed checklist are release-maintainer responsibilities.

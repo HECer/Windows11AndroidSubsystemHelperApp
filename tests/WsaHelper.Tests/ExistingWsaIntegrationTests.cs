@@ -58,7 +58,7 @@ public sealed class ExistingWsaIntegrationTests
             Assert.True(await setup.InstallAsync(state, default));
             Assert.False(state.WsaOwned); Assert.False(state.WsaInstallAttempted); Assert.False(state.FeatureEnableAttempted);
             adb = new(runner, Path.Combine(store.Tools, "adb.exe"), Environment.GetEnvironmentVariable("WSA_HELPER_LIVE_ENDPOINT") ?? "127.0.0.1:58526");
-            await adb.ConnectAsync(); baseline = await adb.ListAsync();
+            await adb.WaitUntilReadyAsync(TimeSpan.FromMinutes(2), new Progress<string>()); baseline = await adb.ListAsync();
             Assert.DoesNotContain(baseline, app => packages.Contains(app.PackageName));
             foreach (var (path, package) in paths.Zip(packages))
             {

@@ -79,7 +79,7 @@ public sealed class CoreTests : IDisposable
     public async Task UnauthorizedAdbDeviceExplainsRequiredApproval()
     {
         var runner = new FakeRunner(new(0, "127.0.0.1:58526\tunauthorized\n", ""));
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => new AdbClient(runner, "adb.exe", "127.0.0.1:58526").ConnectAsync());
+        var ex = await Assert.ThrowsAsync<AdbNotReadyException>(() => new AdbClient(runner, "adb.exe", "127.0.0.1:58526").ConnectAsync());
         Assert.Contains("approve", ex.Message);
     }
     [Fact]
@@ -176,6 +176,29 @@ public sealed class CoreTests : IDisposable
         var runner = new SelectiveRunner(_ => { cancellation.Cancel(); return new(0, "Success", ""); });
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new AdbClient(runner, "adb.exe", "127.0.0.1:58526").UninstallManyAsync(["com.example.one", "com.example.two"], new Progress<string>(), cancellation.Token));
         Assert.Single(runner.Calls);
+    }
+    [Fact]
+    public async Task ReadinessWaitContinuesAutomaticallyAfterApproval()
+    {
+        var polls = 0;
+        var runner = new SelectiveRunner(args => new(0, args[^1] == "devices" ? "127.0.0.1:58526\t" + (++polls == 1 ? "unauthorized" : "device") : "", ""));
+        await new AdbClient(runner, "adb.exe", "127.0.0.1:58526").WaitUntilReadyAsync(TimeSpan.FromSeconds(10), new Progress<string>());
+        Assert.Equal(2, polls); Assert.DoesNotContain(runner.Calls, args => args.Contains("install"));
+    }
+    [Fact]
+    public async Task ReadinessWaitHasAFiniteDeadlineAndDoesNotInstallAnything()
+    {
+        var runner = new SelectiveRunner(_ => new(0, "127.0.0.1:58526\tunauthorized", ""));
+        var error = await Assert.ThrowsAsync<TimeoutException>(() => new AdbClient(runner, "adb.exe", "127.0.0.1:58526").WaitUntilReadyAsync(TimeSpan.FromMilliseconds(100), new Progress<string>()));
+        Assert.Contains("approve", error.Message); Assert.DoesNotContain(runner.Calls, args => args.Contains("install"));
+    }
+    [Fact]
+    public async Task CancelledReadinessWaitDoesNotStartAdb()
+    {
+        using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
+        var runner = new SelectiveRunner(_ => new(0, "", ""));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new AdbClient(runner, "adb.exe", "127.0.0.1:58526").WaitUntilReadyAsync(TimeSpan.FromMinutes(1), new Progress<string>(), cancelled.Token));
+        Assert.Empty(runner.Calls);
     }
     private static byte[] BinaryManifest(bool utf8)
     {

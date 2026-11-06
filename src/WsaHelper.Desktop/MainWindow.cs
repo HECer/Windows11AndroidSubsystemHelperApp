@@ -178,17 +178,15 @@ internal sealed class MainWindow : Window
     {
         var adb = Adb();
         try { await adb.ConnectAsync(ct); return adb; }
-        catch (InvalidOperationException ex) when (!ex.Message.Contains("unauthorized", StringComparison.OrdinalIgnoreCase))
+        catch (AdbNotReadyException ex)
         {
-            Report("Starting WSA. Approve Android debugging if asked…");
-            WindowsBridge.Open("wsa://com.android.settings");
-            for (var attempt = 0; attempt < 15; attempt++)
+            if (ex.State != "unauthorized")
             {
-                await Task.Delay(TimeSpan.FromSeconds(2), ct);
-                try { await adb.ConnectAsync(ct); return adb; }
-                catch (InvalidOperationException retry) when (attempt < 14 && !retry.Message.Contains("unauthorized", StringComparison.OrdinalIgnoreCase)) { }
+                Report("Starting WSA. Approve Android debugging if asked…");
+                WindowsBridge.Open("wsa://com.android.settings");
             }
-            throw;
+            await adb.WaitUntilReadyAsync(TimeSpan.FromMinutes(2), progress, ct);
+            return adb;
         }
     }
     internal void ShowApps()

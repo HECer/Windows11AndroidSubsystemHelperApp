@@ -1,6 +1,11 @@
 namespace WsaHelper.Core;
 
 public sealed record AppOperationResult(string PackageName, bool Success, string? Error = null);
+public sealed class AdbNotReadyException(string state, string details) : InvalidOperationException(
+    "WSA is not ready for APK management. Open WSA settings, enable Developer mode, start the subsystem and approve its Android debugging prompt.\n" + details)
+{
+    public string State { get; } = state;
+}
 public sealed class AdbClient(IProcessRunner runner, string executable, string endpoint)
 {
     public const string ServerPort = "5039";
@@ -15,8 +20,41 @@ public sealed class AdbClient(IProcessRunner runner, string executable, string e
         var connection = (await Run(["connect", target], ct)).RequireSuccess();
         var devices = (await Run(["devices"], ct)).RequireSuccess();
         var line = devices.Split('\n').FirstOrDefault(l => l.StartsWith(target + "\t", StringComparison.Ordinal));
-        if (line is null || line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).ElementAtOrDefault(1) != "device")
-            throw new InvalidOperationException("WSA is not ready for APK management. Open WSA settings, enable Developer mode, start the subsystem and approve its Android debugging prompt. Then retry.\n" + connection + "\n" + line);
+        var state = line?.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).ElementAtOrDefault(1) ?? "unavailable";
+        if (state != "device") throw new AdbNotReadyException(state, connection + "\n" + line);
+    }
+    public async Task WaitUntilReadyAsync(TimeSpan timeout, IProgress<string> progress, CancellationToken ct = default)
+    {
+        if (timeout <= TimeSpan.Zero || timeout > TimeSpan.FromMinutes(10)) throw new ArgumentOutOfRangeException(nameof(timeout));
+        ct.ThrowIfCancellationRequested();
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(timeout);
+        AdbNotReadyException? last = null;
+        string? reportedState = null;
+        try
+        {
+            while (true)
+            {
+                deadline.Token.ThrowIfCancellationRequested();
+                try { await ConnectAsync(deadline.Token); return; }
+                catch (AdbNotReadyException ex)
+                {
+                    last = ex;
+                    if (reportedState != ex.State)
+                    {
+                        progress.Report(ex.State == "unauthorized"
+                            ? "Waiting for WSA's Allow debugging approval. Approve the current prompt for this computer; installation will continue automatically."
+                            : "Waiting for WSA to finish starting and expose its debugging connection…");
+                        reportedState = ex.State;
+                    }
+                }
+                await Task.Delay(TimeSpan.FromSeconds(2), deadline.Token);
+            }
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new TimeoutException("WSA did not become ready before the connection deadline. " + last?.Message, last);
+        }
     }
     public async Task InstallAsync(string path, CancellationToken ct = default)
     {
