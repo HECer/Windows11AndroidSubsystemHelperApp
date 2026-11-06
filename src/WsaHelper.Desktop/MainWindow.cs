@@ -24,7 +24,7 @@ internal sealed class MainWindow : Window
     private readonly TextBox log = new() { IsReadOnly = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Background = new SolidColorBrush(Color.FromRgb(19, 25, 33)), Foreground = Brushes.LightGray, BorderThickness = new Thickness(0), Padding = new Thickness(14), FontFamily = new FontFamily("Consolas"), FontSize = 12 };
     private readonly TextBlock status = new() { Text = "Ready", Margin = new Thickness(28, 10, 28, 10), TextWrapping = TextWrapping.Wrap };
     private readonly ObservableCollection<AndroidApp> apps = [];
-    private readonly Progress<string> progress;
+    private readonly IProgress<string> progress;
     private readonly DispatcherTimer inboxTimer = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly Queue<string> queue = new();
     private readonly List<Button> controls = [];
@@ -41,7 +41,7 @@ internal sealed class MainWindow : Window
     {
         state = store.Load(); windows = new(runner);
         http.DefaultRequestHeaders.UserAgent.ParseAdd("WsaHelper/0.1.0");
-        progress = new Progress<string>(Report);
+        progress = new DispatcherProgress(Dispatcher, Report);
         Title = "WSA Helper"; Width = 1100; Height = 790; MinWidth = 850; MinHeight = 650;
         Background = new SolidColorBrush(Color.FromRgb(25, 32, 43)); Foreground = Brushes.White; FontFamily = new FontFamily("Segoe UI"); FontSize = 14;
         var buttonStyle = new Style(typeof(Button));
@@ -83,14 +83,26 @@ internal sealed class MainWindow : Window
             if (busy || removeMode) return;
             try
             {
+                var receivedRequests = false;
                 var inbox = Path.Combine(store.Root, "inbox");
                 if (Directory.Exists(inbox)) foreach (var file in Directory.EnumerateFiles(inbox, "*.json"))
                 {
-                    if (new FileInfo(file).Length > 65536) throw new InvalidDataException("Oversized APK request.");
-                    var paths = JsonSerializer.Deserialize<string[]>(File.ReadAllText(file)) ?? [];
-                    foreach (var path in paths) queue.Enqueue(Safety.Apk(path)); File.Delete(file);
+                    try
+                    {
+                        if (new FileInfo(file).Length > 65536) throw new InvalidDataException("Oversized APK request.");
+                        var paths = (JsonSerializer.Deserialize<string[]>(File.ReadAllText(file)) ?? []).Select(Safety.Apk).ToArray();
+                        // Persist the complete validated request before acknowledging its inbox file.
+                        state.PendingApks = state.PendingApks.Concat(paths).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(); store.Save(state);
+                        foreach (var path in paths) if (!queue.Contains(path, StringComparer.OrdinalIgnoreCase)) queue.Enqueue(path);
+                        File.Delete(file); receivedRequests |= paths.Length > 0;
+                    }
+                    catch (Exception ex) when (ex is InvalidDataException or JsonException or ArgumentException)
+                    {
+                        File.Move(file, file + ".rejected", true); Report("APK request rejected: " + ex.Message);
+                    }
                 }
-                if (queue.Count > 0 && state.Phase == "Installed") await Run(async ct => { ShowApps(); await ProcessQueue(ct); await Refresh(ct); });
+                // A failed connection is retried through Refresh or a new Explorer request, not a modal prompt every timer tick.
+                if (receivedRequests && queue.Count > 0 && state.Phase == "Installed") await Run(async ct => { ShowApps(); await ProcessQueue(ct); await Refresh(ct); });
             }
             catch (Exception ex) { Report(ex.Message); }
         };
@@ -107,6 +119,7 @@ internal sealed class MainWindow : Window
     }
     private void Heading(string title, string description)
     {
+        if (controls.Count > 3) controls.RemoveRange(3, controls.Count - 3);
         content.Children.Clear();
         content.Children.Add(new TextBlock { Text = title, FontSize = 23, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 10) });
         content.Children.Add(new TextBlock { Text = description, TextWrapping = TextWrapping.Wrap, Foreground = Brushes.LightGray, Margin = new Thickness(0, 0, 0, 15) });
@@ -138,6 +151,7 @@ internal sealed class MainWindow : Window
     }
     private async Task Install(CancellationToken ct)
     {
+        closeAfterRemoval = false;
         state.PendingApks = state.PendingApks.Concat(queue).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(); queue.Clear(); store.Save(state);
         DesktopInstall.Deploy(state); DesktopInstall.ResumeAtSignIn(false);
         var complete = await Setup.InstallAsync(state, ct);
@@ -236,15 +250,10 @@ internal sealed class MainWindow : Window
         if (packages.Length == 0) { Report("Select one or more Android apps first."); return; }
         if (MessageBox.Show(this, $"Uninstall {packages.Length} Android app(s) and delete their Android data?\n\n{string.Join("\n", packages.Take(12))}", "Confirm uninstall", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         var adb = await ConnectedAdb(ct);
-        var failures = new List<string>();
-        foreach (var package in packages)
-        {
-            ct.ThrowIfCancellationRequested();
-            try { Report("Uninstalling " + package); await adb.UninstallAsync(package, ct); Report("Uninstalled " + package); }
-            catch (Exception ex) when (ex is not OperationCanceledException) { failures.Add(package + ": " + ex.Message); Report(failures[^1]); }
-        }
+        var results = await adb.UninstallManyAsync(packages, progress, ct);
+        var failures = results.Where(result => !result.Success).Select(result => result.PackageName + ": " + result.Error).ToArray();
         await Refresh(ct);
-        if (failures.Count > 0) MessageBox.Show(this, string.Join("\n\n", failures), "Some apps could not be uninstalled");
+        if (failures.Length > 0) MessageBox.Show(this, string.Join("\n\n", failures), "Some apps could not be uninstalled");
     }
     internal void ShowRemove()
     {
@@ -260,6 +269,7 @@ internal sealed class MainWindow : Window
             {
                 if (File.Exists(Path.Combine(store.Tools, "adb.exe"))) await new AdbClient(runner, Path.Combine(store.Tools, "adb.exe"), state.Endpoint).StopAsync();
                 await Setup.RemoveAsync(state, restore.IsChecked == true, ct);
+                queue.Clear();
                 DesktopInstall.Unregister(); state.AssociationRegistered = false; store.Save(state);
                 closeAfterRemoval = true;
                 Report("Removal finished. Close this window to remove the helper executables. The recovery journal remains in " + store.Root);
@@ -275,10 +285,9 @@ internal sealed class MainWindow : Window
     {
         var marker = Path.Combine(DesktopInstall.Bin, ".wsa-helper-owned");
         if (!File.Exists(marker) || File.ReadAllText(marker) != state.InstallId) return;
-        var command = "$ErrorActionPreference='Stop'; Wait-Process -Id " + Environment.ProcessId + " -ErrorAction SilentlyContinue; " +
-            "$p=" + WindowsBridge.Quote(DesktopInstall.Bin) + "; $m=Join-Path $p '.wsa-helper-owned'; " +
-            "if ((Test-Path -LiteralPath $m) -and (Get-Content -Raw -LiteralPath $m) -eq " + WindowsBridge.Quote(state.InstallId) + ") { " +
-            "if ((Get-ChildItem -LiteralPath $p -Force -Recurse | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }).Count -eq 0 -and !((Get-Item -LiteralPath $p).Attributes -band [IO.FileAttributes]::ReparsePoint)) { Remove-Item -LiteralPath $p -Recurse -Force } }";
+        var command = "& { " + WindowsBridge.Script("CleanupHelper") + " } -Directory " + WindowsBridge.Quote(DesktopInstall.Bin) +
+            " -InstallId " + WindowsBridge.Quote(state.InstallId) + " -WaitForPid " + Environment.ProcessId +
+            " -ReportPath " + WindowsBridge.Quote(Path.Combine(store.Root, "cleanup-result.json"));
         _ = windows.CommandAsync(command);
     }
 }

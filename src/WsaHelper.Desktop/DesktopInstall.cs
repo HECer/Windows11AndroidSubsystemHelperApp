@@ -13,9 +13,27 @@ internal static class DesktopInstall
     private const string ProgId = "WsaHelper.Apk";
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\RunOnce";
     private const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\WsaHelper";
+    private static readonly string[] DistributionFiles =
+    [
+        "WsaHelper.exe", "WsaSetup.exe", "WsaRemove.exe", "WsaHelper.dll", "WsaHelper.Core.dll", "SharpCompress.dll",
+        "WsaHelper.deps.json", "WsaHelper.runtimeconfig.json", "README.md", "LICENSE", "THIRD-PARTY-NOTICES.md", "ACCEPTANCE.md", "VALIDATION.md"
+    ];
+    internal static string[] CopyDistributionFiles(string sourceDirectory, string targetDirectory)
+    {
+        Directory.CreateDirectory(targetDirectory);
+        var copied = new List<string>();
+        foreach (var name in DistributionFiles)
+        {
+            var source = Path.Combine(sourceDirectory, name);
+            if (!File.Exists(source)) continue;
+            File.Copy(source, Path.Combine(targetDirectory, name), true); copied.Add(name);
+        }
+        return copied.ToArray();
+    }
     [DllImport("shell32.dll")] private static extern void SHChangeNotify(uint eventId, uint flags, IntPtr item1, IntPtr item2);
     public static void Deploy(InstallState state)
     {
+        var copied = new List<string>();
         Directory.CreateDirectory(Bin);
         var marker = Path.Combine(Bin, ".wsa-helper-owned");
         if (Directory.EnumerateFileSystemEntries(Bin).Any() && (!File.Exists(marker) || File.ReadAllText(marker) != state.InstallId))
@@ -24,15 +42,13 @@ internal static class DesktopInstall
         if (!Safety.SamePath(AppContext.BaseDirectory, Bin))
         {
             if (!File.Exists(Path.Combine(AppContext.BaseDirectory, "WsaHelper.exe"))) throw new IOException("Run WsaSetup.exe from the extracted release folder.");
-            // The release is self-contained. Development builds also need their sibling DLLs and runtime configuration.
-            foreach (var source in Directory.EnumerateFiles(AppContext.BaseDirectory))
-            {
-                var ext = Path.GetExtension(source);
-                if (ext is ".exe" or ".dll" or ".json" or ".txt") File.Copy(source, Path.Combine(Bin, Path.GetFileName(source)), true);
-            }
+            // Copy only this product's files, even when setup was extracted beside unrelated downloads.
+            copied.AddRange(CopyDistributionFiles(AppContext.BaseDirectory, Bin));
         }
+        else if (!File.Exists(Path.Combine(Bin, InstalledFiles.ManifestName)))
+            throw new IOException("Helper file ownership is missing. Run setup from the downloaded release folder to repair it safely.");
         foreach (var name in new[] { "WsaSetup.exe", "WsaRemove.exe" })
-            if (!File.Exists(Path.Combine(Bin, name))) File.Copy(Manager, Path.Combine(Bin, name));
+            if (!File.Exists(Path.Combine(Bin, name))) { File.Copy(Manager, Path.Combine(Bin, name)); copied.Add(name); }
         var sourceLicenses = Path.Combine(AppContext.BaseDirectory, "licenses");
         var targetLicenses = Path.Combine(Bin, "licenses");
         if (!Safety.SamePath(AppContext.BaseDirectory, Bin) && Directory.Exists(sourceLicenses))
@@ -41,8 +57,10 @@ internal static class DesktopInstall
             {
                 var destination = Safety.Within(targetLicenses, Path.GetRelativePath(sourceLicenses, source));
                 Directory.CreateDirectory(Path.GetDirectoryName(destination)!); File.Copy(source, destination, true);
+                copied.Add(Path.GetRelativePath(Bin, destination));
             }
         }
+        InstalledFiles.RecordDeployment(Bin, state.InstallId, copied);
     }
     public static void Register(InstallState state)
     {

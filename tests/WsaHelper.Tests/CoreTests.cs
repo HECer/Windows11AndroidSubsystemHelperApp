@@ -153,6 +153,30 @@ public sealed class CoreTests : IDisposable
         await new SetupService(store, windows, new(http), new Progress<string>()).RemoveAsync(state, true, default);
         Assert.True(windows.FeaturesChanged); Assert.False(store.Load().FeatureEnableAttempted);
     }
+    [Fact]
+    public async Task BulkUninstallContinuesAfterFailureAndDeduplicatesPackages()
+    {
+        var runner = new SelectiveRunner(arguments => arguments[^1] == "com.example.fail" ? new(0, "Failure [DELETE_FAILED_INTERNAL_ERROR]", "") : new(0, "Success", ""));
+        var results = await new AdbClient(runner, "adb.exe", "127.0.0.1:58526").UninstallManyAsync(["com.example.fail", "com.example.ok", "com.example.ok"], new Progress<string>());
+        Assert.Collection(results, failure => Assert.False(failure.Success), success => Assert.True(success.Success));
+        Assert.Equal(2, runner.Calls.Count);
+        Assert.All(runner.Calls, args => Assert.Equal(new[] { "-P", "5039", "-s", "127.0.0.1:58526", "uninstall" }, args[..^1]));
+    }
+    [Fact]
+    public async Task BulkUninstallValidatesTheEntireSelectionBeforeChangingAnything()
+    {
+        var runner = new SelectiveRunner(_ => new(0, "Success", ""));
+        await Assert.ThrowsAsync<InvalidDataException>(() => new AdbClient(runner, "adb.exe", "127.0.0.1:58526").UninstallManyAsync(["com.example.ok", "com.example.app;bad"], new Progress<string>()));
+        Assert.Empty(runner.Calls);
+    }
+    [Fact]
+    public async Task BulkUninstallHonorsCancellationBetweenApps()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var runner = new SelectiveRunner(_ => { cancellation.Cancel(); return new(0, "Success", ""); });
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new AdbClient(runner, "adb.exe", "127.0.0.1:58526").UninstallManyAsync(["com.example.one", "com.example.two"], new Progress<string>(), cancellation.Token));
+        Assert.Single(runner.Calls);
+    }
     private static byte[] BinaryManifest(bool utf8)
     {
         string[] strings = ["manifest", "package", "com.example.app"];
@@ -176,6 +200,14 @@ public sealed class CoreTests : IDisposable
     {
         public string[] Arguments = [];
         public Task<ProcessResult> RunAsync(string file, IEnumerable<string> arguments, TimeSpan timeout, CancellationToken cancellationToken = default) { Arguments = arguments.ToArray(); return Task.FromResult(result); }
+    }
+    private sealed class SelectiveRunner(Func<string[], ProcessResult> response) : IProcessRunner
+    {
+        public List<string[]> Calls { get; } = [];
+        public Task<ProcessResult> RunAsync(string file, IEnumerable<string> arguments, TimeSpan timeout, CancellationToken cancellationToken = default)
+        {
+            var args = arguments.ToArray(); Calls.Add(args); return Task.FromResult(response(args));
+        }
     }
     private sealed class FakeWindows(string? location) : IWindowsBridge
     {

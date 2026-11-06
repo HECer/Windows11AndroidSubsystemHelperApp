@@ -1,5 +1,6 @@
 namespace WsaHelper.Core;
 
+public sealed record AppOperationResult(string PackageName, bool Success, string? Error = null);
 public sealed class AdbClient(IProcessRunner runner, string executable, string endpoint)
 {
     public const string ServerPort = "5039";
@@ -26,6 +27,24 @@ public sealed class AdbClient(IProcessRunner runner, string executable, string e
     {
         var output = (await Device(["uninstall", Safety.Package(package)], ct)).RequireSuccess();
         if (!output.Split('\n').Any(l => l.Trim() == "Success")) throw new InvalidOperationException("Android could not uninstall the app: " + output);
+    }
+    public async Task<IReadOnlyList<AppOperationResult>> UninstallManyAsync(IEnumerable<string> packages, IProgress<string> progress, CancellationToken ct = default)
+    {
+        var validated = packages.Select(Safety.Package).Distinct(StringComparer.Ordinal).ToArray();
+        var results = new List<AppOperationResult>();
+        foreach (var package in validated)
+        {
+            ct.ThrowIfCancellationRequested(); progress.Report("Uninstalling " + package);
+            try
+            {
+                await UninstallAsync(package, ct); results.Add(new(package, true)); progress.Report("Uninstalled " + package);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                results.Add(new(package, false, ex.Message)); progress.Report(package + ": " + ex.Message);
+            }
+        }
+        return results;
     }
     public async Task<IReadOnlyList<AndroidApp>> ListAsync(CancellationToken ct = default)
     {
