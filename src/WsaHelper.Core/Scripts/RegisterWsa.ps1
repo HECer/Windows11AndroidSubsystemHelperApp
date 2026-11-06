@@ -3,7 +3,11 @@ $ErrorActionPreference = 'Stop'
 $manifest = Join-Path $Directory 'AppxManifest.xml'
 [xml]$xml = Get-Content -LiteralPath $manifest
 if ($xml.Package.Identity.Name -ne 'MicrosoftCorporationII.WindowsSubsystemForAndroid' -or $xml.Package.Identity.ProcessorArchitecture -ne 'x64') { throw 'Unexpected WSA package identity.' }
-if (Get-AppxPackage -Name $xml.Package.Identity.Name) { throw 'WSA was installed by another process. Refresh setup; existing installations are preserved.' }
+$existing = Get-AppxPackage -Name $xml.Package.Identity.Name
+if ($existing) {
+    if ([IO.Path]::GetFullPath($existing.InstallLocation).TrimEnd('\') -ieq [IO.Path]::GetFullPath($Directory).TrimEnd('\')) { return }
+    throw 'WSA was installed by another process. Refresh setup; existing installations are preserved.'
+}
 foreach ($dependency in $xml.Package.Dependencies.PackageDependency) {
     $installed = Get-AppxPackage -Name $dependency.Name | Where-Object { $_.Architecture -eq 'X64' -or $_.Architecture -eq 'Neutral' } | Sort-Object Version -Descending | Select-Object -First 1
     if (!$installed -or [version]$installed.Version -lt [version]$dependency.MinVersion) {

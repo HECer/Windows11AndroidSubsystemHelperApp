@@ -1,19 +1,22 @@
 # Only this fixed script runs elevated. It never executes user paths or downloads.
-param([ValidateSet('Enable','Restore')][string]$Operation, [ValidatePattern('^[a-f0-9]{32}$')][string]$InstallId)
+param([ValidateSet('Enable','Restore')][string]$Operation, [ValidatePattern('^[a-f0-9]{32}$')][string]$InstallId, [string]$CallerSid)
 $ErrorActionPreference = 'Stop'
+# Refuse over-the-shoulder UAC before any registry or feature writes.
+if ([Security.Principal.WindowsIdentity]::GetCurrent().User.Value -cne $CallerSid) { exit 5 }
 $marker = "HKLM:\SOFTWARE\WsaHelper\Changes\$InstallId"
 $policy = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock'
 try {
     if ($Operation -eq 'Enable') {
         if (!(Test-Path $marker)) {
             New-Item $marker -Force | Out-Null
+            New-ItemProperty $marker 'OwnerSid' -Value $CallerSid -PropertyType String | Out-Null
             $original = Get-ItemPropertyValue $policy 'AllowDevelopmentWithoutDevLicense' -ErrorAction SilentlyContinue
             New-ItemProperty $marker 'OriginalDevelopmentPolicy' -Value $(if ($null -eq $original) {-1} else {[int]$original}) -PropertyType DWord | Out-Null
             $enabled = (Get-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform).State -eq 'Enabled'
             New-ItemProperty $marker 'VmpOriginallyEnabled' -Value ([int]$enabled) -PropertyType DWord | Out-Null
         }
         $journal = Get-ItemProperty $marker
-        if ($null -eq $journal.OriginalDevelopmentPolicy -or $null -eq $journal.VmpOriginallyEnabled) { throw 'Incomplete machine journal; no settings changed. Restore manually.' }
+        if ($journal.OwnerSid -cne $CallerSid -or $null -eq $journal.OriginalDevelopmentPolicy -or $null -eq $journal.VmpOriginallyEnabled) { throw 'Incomplete or foreign machine journal; no settings changed. Restore manually.' }
         $restart = $false
         if ((Get-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform).State -ne 'Enabled') {
             $result = Enable-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform -All -NoRestart
@@ -25,7 +28,7 @@ try {
     } else {
         if (Test-Path $marker) {
             $saved = Get-ItemProperty $marker
-            if ($null -eq $saved.OriginalDevelopmentPolicy -or $null -eq $saved.VmpOriginallyEnabled) { throw 'Incomplete machine journal; restore manually.' }
+            if ($saved.OwnerSid -cne $CallerSid -or $null -eq $saved.OriginalDevelopmentPolicy -or $null -eq $saved.VmpOriginallyEnabled) { throw 'Incomplete or foreign machine journal; restore manually.' }
             $restart = $false
             if ($saved.VmpOriginallyEnabled -eq 0) {
                 $result = Disable-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform -NoRestart

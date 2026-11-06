@@ -118,18 +118,22 @@ public sealed class CoreTests : IDisposable
     [Fact]
     public async Task PartialRegistrationIsRemovedOnlyWhenLocationMatchesJournal()
     {
-        var store = new StateStore(root); var state = store.Load(); state.WsaInstallAttempted = true; state.WsaDirectory = Path.Combine(root, "WSA-" + state.InstallId); Directory.CreateDirectory(state.WsaDirectory);
-        var windows = new FakeWindows(state.WsaDirectory); using var http = new HttpClient();
+        var store = new StateStore(root); var state = store.Load();
+        var windows = new FakeWindows(null) { DeploymentRoot = Path.Combine(root, "protected") };
+        state.WsaInstallAttempted = true; state.WsaDirectory = windows.DeploymentDirectory(state.InstallId); Directory.CreateDirectory(state.WsaDirectory);
+        var expected = state.WsaDirectory;
+        windows.Location = state.WsaDirectory; using var http = new HttpClient();
         await new SetupService(store, windows, new(http), new Progress<string>()).RemoveAsync(state, false, default);
-        Assert.True(windows.Removed); Assert.False(Directory.Exists(Path.Combine(root, "WSA-" + state.InstallId)));
+        Assert.True(windows.Removed); Assert.False(Directory.Exists(expected));
     }
     [Fact]
     public async Task RemovalDoesNotTrustTamperedOwnershipPath()
     {
         var store = new StateStore(root); var state = store.Load(); state.WsaInstallAttempted = true; state.WsaOwned = true; state.WsaDirectory = Path.Combine(root, "unrelated"); Directory.CreateDirectory(state.WsaDirectory);
         var windows = new FakeWindows(state.WsaDirectory); using var http = new HttpClient();
-        await new SetupService(store, windows, new(http), new Progress<string>()).RemoveAsync(state, false, default);
-        Assert.False(windows.Removed); Assert.True(Directory.Exists(Path.Combine(root, "unrelated")));
+        store.Save(state);
+        await Assert.ThrowsAsync<InvalidDataException>(() => new SetupService(store, windows, new(http), new Progress<string>()).RemoveAsync(state, false, default));
+        Assert.False(windows.Removed); Assert.True(Directory.Exists(Path.Combine(root, "unrelated"))); Assert.True(store.Load().WsaInstallAttempted);
     }
     [Fact]
     public async Task SetupStopsBeforeMutationWhenFirmwareIsDisabled()
@@ -234,10 +238,13 @@ public sealed class CoreTests : IDisposable
     }
     private sealed class FakeWindows(string? location) : IWindowsBridge
     {
+        public string? Location = location;
+        public string DeploymentRoot = Path.Combine(Path.GetTempPath(), "WsaHelper-fake-protected");
         public bool Removed; public bool FeaturesChanged; public bool Virtualization = true; public bool NeedsRestart;
-        public Task<MachineStatus> ProbeAsync(CancellationToken ct = default) => Task.FromResult(new MachineStatus(22631, "X64", 16, 40, Virtualization, true, false, Removed ? null : location, Removed || location is null ? null : "WSA_full_name"));
+        public Task<MachineStatus> ProbeAsync(CancellationToken ct = default) => Task.FromResult(new MachineStatus(22631, "X64", 16, 40, Virtualization, true, false, Removed ? null : Location, Removed || Location is null ? null : "WSA_full_name"));
         public Task<bool> FeaturesAsync(string operation, string id, CancellationToken ct) { FeaturesChanged = true; return Task.FromResult(NeedsRestart); }
-        public Task RegisterAsync(string directory, CancellationToken ct) => Task.CompletedTask;
-        public Task RemoveAsync(string fullName, CancellationToken ct) { Removed = true; return Task.CompletedTask; }
+        public string DeploymentDirectory(string installId) => Safety.Within(DeploymentRoot, DeploymentPolicy.InstallId(installId) + "/Runtime");
+        public Task InstallWsaAsync(string archive, string installId, CancellationToken ct) => Task.CompletedTask;
+        public Task RemoveWsaAsync(string installId, CancellationToken ct) { Removed = true; if (Location is not null && Directory.Exists(Location)) OwnedFiles.DeleteTree(Location); return Task.CompletedTask; }
     }
 }

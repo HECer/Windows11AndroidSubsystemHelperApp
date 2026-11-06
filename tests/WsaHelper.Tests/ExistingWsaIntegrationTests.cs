@@ -113,8 +113,9 @@ public sealed class ExistingWsaIntegrationTests
         }
         private Exception Denied() { Mutated = true; return new InvalidOperationException("The existing-WSA smoke test must not change Windows features or AppX registration."); }
         public Task<bool> FeaturesAsync(string operation, string id, CancellationToken ct) => throw Denied();
-        public Task RegisterAsync(string directory, CancellationToken ct) => throw Denied();
-        public Task RemoveAsync(string fullName, CancellationToken ct) => throw Denied();
+        public string DeploymentDirectory(string installId) => real.DeploymentDirectory(installId);
+        public Task InstallWsaAsync(string archive, string installId, CancellationToken ct) => throw Denied();
+        public Task RemoveWsaAsync(string installId, CancellationToken ct) => throw Denied();
     }
     private sealed class PlatformToolsOnlyHandler(string allowedUrl) : HttpClientHandler
     {

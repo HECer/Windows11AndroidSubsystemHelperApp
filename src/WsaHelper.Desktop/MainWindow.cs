@@ -139,7 +139,7 @@ internal sealed class MainWindow : Window
     {
         removeMode = false;
         Heading("Set up Android on Windows", "Microsoft retired WSA on March 5, 2025. This helper uses a pinned community WSA build (WSABuilds LTS 8), without Google Play, Amazon or root. It is unsupported by Microsoft and may stop working after Windows updates.");
-        content.Children.Add(new TextBlock { Text = "Requires Windows 11 x64 · 8 GB RAM · 12 GB free space · firmware virtualization\n\nSetup downloads WSA and Google Android platform-tools. Windows may request administrator approval and a restart. WSA Developer mode and its debugging approval require your interaction. Existing WSA installations are reused.\n\nInstalling APKs means trusting their publishers. WSA and platform-tools retain their upstream license terms.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 20) });
+        content.Children.Add(new TextBlock { Text = "Requires Windows 11 x64 · 8 GB RAM · 12 GB free space · firmware virtualization\n\nSetup downloads WSA and Google Android platform-tools. Windows may request administrator approval and a restart. Fresh WSA setup requires an administrator account that approves its own UAC prompts; another administrator's credentials are not supported. Existing WSA installations are reused.\n\nWSA Developer mode and its debugging approval require your interaction. Installing APKs means trusting their publishers. WSA and platform-tools retain their upstream license terms.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 20) });
         var terms = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12) };
         terms.Inlines.Add("By choosing Install, you accept the upstream terms, including the ");
         var sdkLink = new System.Windows.Documents.Hyperlink(new System.Windows.Documents.Run("Android SDK License Agreement")) { NavigateUri = new Uri("https://developer.android.com/studio/terms"), Foreground = Brushes.LightSkyBlue };
@@ -276,7 +276,7 @@ internal sealed class MainWindow : Window
     }
     private void OnClosing(object? sender, CancelEventArgs e)
     {
-        if (busy) { e.Cancel = true; Report("Wait for the operation to finish, or cancel it before closing. Windows feature changes finish before cancellation."); return; }
+        if (busy) { e.Cancel = true; Report("Wait for the operation to finish, or cancel it before closing. Windows feature and WSA deployment steps finish before cancellation."); return; }
         if (closeAfterRemoval) ScheduleExecutableCleanup();
     }
     private void ScheduleExecutableCleanup()

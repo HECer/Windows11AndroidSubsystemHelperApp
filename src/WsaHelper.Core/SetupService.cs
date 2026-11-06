@@ -69,31 +69,14 @@ public sealed class SetupService(StateStore store, IWindowsBridge windows, Verif
         }
         if (machine.WsaLocation is null)
         {
-            var destination = Safety.Within(store.Root, "WSA-" + state.InstallId);
-            if (!Directory.Exists(destination))
-            {
-                var archive = await downloads.GetAsync(catalog.Wsa, store.Cache, progress, ct);
-                var stage = BeginStage(state, "wsa");
-                try
-                {
-                    progress.Report("Verifying and extracting WSA; this can take several minutes…");
-                    await Task.Run(() => VerifiedDownloads.Extract(archive, stage, ct), ct);
-                    var manifests = Directory.GetFiles(stage, "AppxManifest.xml", SearchOption.AllDirectories);
-                    if (manifests.Length != 1) throw new InvalidDataException("Expected exactly one WSA manifest.");
-                    // Record ownership before moving; interruption at either side is recoverable.
-                    state.WsaDirectory = destination; state.WsaInstallAttempted = true; state.Phase = "Extracted"; store.Save(state);
-                    Directory.Move(Path.GetDirectoryName(manifests[0])!, destination);
-                }
-                finally { ClearStages(state); }
-            }
-            else if (!state.WsaInstallAttempted || !Safety.SamePath(state.WsaDirectory, destination) || !File.Exists(Path.Combine(destination, "AppxManifest.xml")))
-                throw new InvalidOperationException("An unrecognized WSA directory exists. It was preserved; inspect the recovery journal before retrying.");
-                state.WsaDirectory = destination; state.WsaInstallAttempted = true; state.Phase = "Registering"; store.Save(state);
-                progress.Report("Registering WSA and any missing signed Microsoft framework dependencies…");
-                await windows.RegisterAsync(destination, ct);
-                machine = await windows.ProbeAsync(ct);
-                if (!Safety.SamePath(machine.WsaLocation, destination)) throw new InvalidOperationException("Windows did not register the expected WSA directory.");
-                state.WsaOwned = true; state.WsaFullName = machine.WsaFullName;
+            var destination = windows.DeploymentDirectory(state.InstallId);
+            var archive = await downloads.GetAsync(catalog.Wsa, store.Cache, progress, ct);
+            state.WsaDirectory = destination; state.WsaInstallAttempted = true; state.Phase = "Registering"; store.Save(state);
+            progress.Report("Deploying WSA's system service and Microsoft frameworks for this Windows account (administrator approval required)…");
+            await windows.InstallWsaAsync(archive, state.InstallId, ct);
+            machine = await windows.ProbeAsync(ct);
+            if (!Safety.SamePath(machine.WsaLocation, destination)) throw new InvalidOperationException("Windows did not register the expected protected WSA directory.");
+            state.WsaOwned = true; state.WsaFullName = machine.WsaFullName;
         }
         state.Phase = "Installed"; store.Save(state);
         // Download archives are disposable; the registered WSA directory is permanent.
@@ -105,19 +88,21 @@ public sealed class SetupService(StateStore store, IWindowsBridge windows, Verif
     {
         ClearStages(state);
         var machine = await windows.ProbeAsync(ct);
-        var expected = Safety.Within(store.Root, "WSA-" + state.InstallId);
+        var expected = windows.DeploymentDirectory(state.InstallId);
+        if (state.WsaInstallAttempted && !Safety.SamePath(state.WsaDirectory, expected))
+            throw new InvalidDataException("The WSA ownership path does not match this version's protected deployment location. Its files and recovery journal were preserved.");
         if (state.WsaInstallAttempted && Safety.SamePath(state.WsaDirectory, expected))
         {
             if (Safety.SamePath(machine.WsaLocation, expected) && machine.WsaFullName is not null)
             {
                 progress.Report("Removing the WSA installation created by this app, including its Android apps and data…");
-                await windows.RemoveAsync(machine.WsaFullName, ct);
             }
             else if (machine.WsaLocation is not null && Safety.SamePath(machine.WsaLocation, state.WsaDirectory))
                 throw new InvalidOperationException("WSA ownership could not be verified; no files were removed.");
+            // The elevated worker requires a protected, matching ownership journal too.
+            await windows.RemoveWsaAsync(state.InstallId, ct);
             var after = await windows.ProbeAsync(ct);
             if (Safety.SamePath(after.WsaLocation, expected)) throw new InvalidOperationException("WSA is still registered. Its files have been preserved.");
-            if (Directory.Exists(expected)) OwnedFiles.DeleteTree(expected);
         }
         state.WsaOwned = false; state.WsaInstallAttempted = false; state.WsaDirectory = null; state.WsaFullName = null; store.Save(state);
         if (restoreFeatures && state.FeatureEnableAttempted)

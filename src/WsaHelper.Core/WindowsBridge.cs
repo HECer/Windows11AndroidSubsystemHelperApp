@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Security.Principal;
 
 namespace WsaHelper.Core;
 
@@ -8,8 +9,9 @@ public interface IWindowsBridge
 {
     Task<MachineStatus> ProbeAsync(CancellationToken ct = default);
     Task<bool> FeaturesAsync(string operation, string id, CancellationToken ct);
-    Task RegisterAsync(string directory, CancellationToken ct);
-    Task RemoveAsync(string fullName, CancellationToken ct);
+    string DeploymentDirectory(string installId);
+    Task InstallWsaAsync(string archive, string installId, CancellationToken ct);
+    Task RemoveWsaAsync(string installId, CancellationToken ct);
 }
 public sealed class WindowsBridge(IProcessRunner runner) : IWindowsBridge
 {
@@ -30,18 +32,40 @@ public sealed class WindowsBridge(IProcessRunner runner) : IWindowsBridge
     public async Task<bool> FeaturesAsync(string operation, string id, CancellationToken ct)
     {
         if (operation is not ("Enable" or "Restore") || !Guid.TryParseExact(id, "N", out _)) throw new ArgumentException("Invalid feature operation.");
-        var command = Prelude + "& { " + Script("Features") + " } -Operation " + Quote(operation) + " -InstallId " + Quote(id);
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
+        using var identity = WindowsIdentity.GetCurrent();
+        var command = Prelude + "& { " + Script("Features") + " } -Operation " + Quote(operation) + " -InstallId " + Quote(id) + " -CallerSid " + Quote(identity.User!.Value);
         var info = new ProcessStartInfo(PowerShell) { UseShellExecute = true, Verb = "runas", WindowStyle = ProcessWindowStyle.Hidden };
         foreach (var arg in new[] { "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", Convert.ToBase64String(Encoding.Unicode.GetBytes(command)) }) info.ArgumentList.Add(arg);
         using var process = Process.Start(info) ?? throw new InvalidOperationException("Administrator approval is required to configure Windows features.");
         // Once DISM starts it must finish; cancellation is honored before the next setup step.
         await process.WaitForExitAsync(CancellationToken.None);
+        if (process.ExitCode == 5) throw new InvalidOperationException("Administrator approval used a different Windows account. Fresh setup must be started and approved by the same administrator account. No feature settings were changed.");
         if (process.ExitCode is not (0 or 3010)) throw new InvalidOperationException("Windows feature configuration failed. Check DISM logs in Windows\\Logs\\DISM and retry.");
         return process.ExitCode == 3010;
     }
-    public async Task RegisterAsync(string directory, CancellationToken ct) =>
-        (await CommandAsync("& { " + Script("RegisterWsa") + " } -Directory " + Quote(directory), ct)).RequireSuccess();
-    public async Task RemoveAsync(string fullName, CancellationToken ct) =>
-        (await CommandAsync("Remove-AppxPackage -Package " + Quote(fullName), ct)).RequireSuccess();
+    public string DeploymentDirectory(string installId)
+    {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
+        return Path.Combine(MachineWsaDeployment.DirectoryFor(installId), "Runtime");
+    }
+    public Task InstallWsaAsync(string archive, string installId, CancellationToken ct) => DeployAsync("install", archive, installId, ct);
+    public Task RemoveWsaAsync(string installId, CancellationToken ct) => DeployAsync("remove", null, installId, ct);
+    private static async Task DeployAsync(string operation, string? archive, string installId, CancellationToken ct)
+    {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
+        _ = DeploymentPolicy.InstallId(installId); ct.ThrowIfCancellationRequested();
+        using var identity = WindowsIdentity.GetCurrent();
+        var executable = Environment.ProcessPath ?? throw new InvalidOperationException("Cannot locate the deployment helper.");
+        if (Path.GetFileName(executable) is not ("WsaHelper.exe" or "WsaSetup.exe" or "WsaRemove.exe"))
+            throw new InvalidOperationException("Use the published Windows executable for fresh WSA deployment.");
+        var info = new ProcessStartInfo(executable) { UseShellExecute = true, Verb = "runas", WindowStyle = ProcessWindowStyle.Hidden };
+        foreach (var arg in new[] { "--machine-wsa", operation, installId, identity.User!.Value }) info.ArgumentList.Add(arg);
+        if (archive is not null) info.ArgumentList.Add(Path.GetFullPath(archive));
+        using var process = Process.Start(info) ?? throw new InvalidOperationException("Administrator approval is required to deploy WSA.");
+        // Interrupting AppX deployment can damage registration. Finish this atomic step first.
+        await process.WaitForExitAsync(CancellationToken.None);
+        if (process.ExitCode != 0) throw new InvalidOperationException("Elevated WSA deployment did not finish. See its error message, then retry setup or removal; protected runtime files were retained for recovery.");
+    }
     public static void Open(string uri) => Process.Start(new ProcessStartInfo(uri) { UseShellExecute = true });
 }

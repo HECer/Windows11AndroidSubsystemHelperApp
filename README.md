@@ -2,14 +2,14 @@
 
 A native Windows 11 app for setting up Windows Subsystem for Android (WSA), installing APKs from Explorer, and managing Android apps. **Release candidate / experimental. Windows 11 x64 only.**
 
-**Do not use this candidate for a fresh production WSA installation.** Existing-WSA helper setup/removal has been exercised, but fresh deployment still needs an identity-safe elevated registration path for WSA's packaged service and clean-machine verification. See [acceptance gates](docs/ACCEPTANCE.md).
+**Do not use this candidate for a fresh production WSA installation.** Existing-WSA helper setup/removal has been exercised. The elevated fresh-deployment path is implemented but still needs clean-machine verification. See [acceptance gates](docs/ACCEPTANCE.md).
 
 Microsoft retired WSA and removed it from the Store on March 5, 2025 ([notice](https://github.com/microsoft/WSA/discussions/536)). This project uses an explicitly pinned [WSABuilds community build](https://github.com/MustardChef/WSABuilds/releases/tag/Windows_11_2407.40000.4.0_LTS_8). It does not restore Microsoft's support or guarantee compatibility with future Windows updates. It is unaffiliated with Microsoft, Google, Amazon, or WSABuilds.
 
 ## Use
 
 1. Extract the entire release ZIP to a local folder. Run **WsaSetup.exe** normally, without “Run as administrator”. No separate .NET installation is needed in the published package.
-2. Read the source and license information, then choose **Install / resume setup**. Setup checks Windows, RAM, storage and virtualization; requests UAC for Virtual Machine Platform and the developer sideloading policy; downloads and verifies WSA and Android platform-tools; and installs missing framework dependencies and WSA for your Windows account. A pre-existing WSA installation is reused.
+2. Read the source and license information, then choose **Install / resume setup**. Setup checks Windows, RAM, storage and virtualization; requests UAC for Virtual Machine Platform, sideloading policy and WSA's system service; downloads and verifies WSA and Android platform-tools; and installs missing framework dependencies and WSA for your Windows account. A pre-existing WSA installation is reused.
 3. If Windows needs a restart, save your work and restart yourself. Setup resumes through a one-time sign-in entry. You can also reopen Setup to resume or Remove to undo partial setup.
 4. In **WSA settings → Advanced settings**, enable **Developer mode**. Start the subsystem using **Files** if necessary and approve **Allow debugging**. These Windows/Android security approvals cannot be bypassed. Firmware virtualization must be enabled in UEFI/BIOS if it is off; the app explains this rather than claiming it can change firmware.
 5. **Right-click an APK → Open with → Choose another app → WSA Helper**. If Windows has not refreshed the app list, browse to `%LOCALAPPDATA%\WsaHelper\App\WsaHelper.exe`. The APK installs automatically, replacing a compatible existing version. Windows lets you choose whether to make this the default; the helper does not overwrite Windows' UserChoice.
@@ -19,11 +19,13 @@ The manager starts WSA when needed and reconnects to `127.0.0.1:58526`. It waits
 
 Only individual `.apk` files are supported. `.apks`, `.xapk`, split APK sets and Google Play services are not installed. Compatibility depends on WSA and the APK. No Google account or app store is required.
 
+Fresh WSA setup and removal currently require an administrator account that approves its own UAC prompts. Supplying a different administrator's credentials is rejected before privileged changes; it would register WSA for the wrong account. Windows Administrator protection configurations that change the elevated account SID are also rejected. Existing WSA management runs without elevation. These account limitations must be considered before using this candidate.
+
 ## Remove / reverse setup
 
 Run **WsaRemove.exe**, use the Remove tab, or select WSA Helper in Windows Installed apps.
 
-- If this helper installed WSA, removal unregisters that exact WSA location and deletes its files. **All Android apps and Android data in that WSA installation are lost**, including apps installed later through other tools. Back up data first.
+- If this helper installed WSA, removal requests UAC, verifies the protected ownership journal, unregisters that exact WSA location and deletes its files. **All Android apps and Android data in that WSA installation are lost**, including apps installed later through other tools. Back up data first.
 - A pre-existing WSA installation is preserved, as are shared Microsoft framework packages; they may be used by other apps.
 - By default, Windows virtualization and sideloading settings remain enabled. The optional restore checkbox restores only settings recorded by this setup. Use it only if WSL, Docker, other VMs and other sideloaded apps do not now rely on them. Windows may require a restart. Restoration is an explicit user choice because the helper cannot determine all later consumers of a shared Windows feature.
 - File associations, app registration, shortcuts and the helper's private platform-tools are removed. Close the removal window to finish deleting helper executables. A file manifest records exactly which helper files were installed and their SHA-256 hashes; cleanup preserves added files and modified files, refuses linked/escaping paths, and removes only empty directories. `%LOCALAPPDATA%\WsaHelper\cleanup-result.json` records any modified helper files retained for review.
@@ -34,6 +36,8 @@ Interruptions do not silently trigger destructive rollback: finished changes rem
 ## Requirements and downloads
 
 Windows 11 x64 (build 22000+), at least 8 GB RAM (16 GB recommended), 12 GB free space, CPU virtualization enabled in firmware, administrator approval for machine settings, and internet access to GitHub and Google's Android download server. No Windows Home Hyper-V hack or execution-policy change is required. SSD storage is recommended. Windows on ARM and Windows 10 are outside this release's scope.
+
+The WSA runtime is staged under `%ProgramFiles%\WsaHelper\Subsystems\<installation-id>\Runtime`, with a protected machine ownership journal beside it. Only Administrators and SYSTEM can modify the tree; users and application containers receive read/execute access. The elevated worker copies the download into that protected tree and checks the pinned hash again before extraction or registration. It refuses another account's WSA installation and linked or untrusted runtime paths. Fresh staging requires 12 GB free on the Program Files drive as well as the profile-drive space checked by Setup.
 
 `src/WsaHelper.Core/catalog.json` pins exact URLs, sizes and SHA-256 digests:
 
