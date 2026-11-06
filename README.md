@@ -1,5 +1,7 @@
 # WSA Helper
 
+Maintained by [Hermann (HECer)](https://github.com/HECer). [Download the experimental v0.1.0 pre-release](https://github.com/HECer/Windows11AndroidSubsystemHelperApp/releases/tag/v0.1.0).
+
 A native Windows 11 app for setting up Windows Subsystem for Android (WSA), installing APKs from Explorer, and managing Android apps. **Release candidate / experimental. Windows 11 x64 only.**
 
 **Do not use this candidate for a fresh production WSA installation.** Existing-WSA helper setup/removal has been exercised. The elevated fresh-deployment path is implemented but still needs clean-machine verification. See [acceptance gates](docs/ACCEPTANCE.md).
